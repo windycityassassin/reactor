@@ -17,7 +17,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import ingest, chat, chat_kick, score, cut
+from . import ingest, chat, score, cut
 
 log = logging.getLogger("clipping")
 
@@ -38,33 +38,21 @@ def _slug(t: float) -> str:
 # ---- monitor: live capture + detection loop --------------------------------
 
 def cmd_monitor(args: argparse.Namespace) -> int:
-    out_dir = Path(args.out) / f"{args.platform}_{args.channel}"
+    out_dir = Path(args.out) / args.channel
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cfg = ingest.CaptureConfig(
         channel=args.channel,
         output_dir=out_dir,
-        platform=args.platform,
         quality=args.quality,
         segment_seconds=args.segment_seconds,
     )
 
-    log.info("waiting for %s/#%s to go live", args.platform, args.channel)
+    log.info("waiting for twitch/#%s to go live", args.channel)
     capture = ingest.wait_until_live(cfg)
 
-    chat_mon: chat.ChatMonitor | chat_kick.KickChatMonitor | None
-    if args.platform == "twitch":
-        chat_mon = chat.ChatMonitor(args.channel)
-        chat_mon.start()
-    elif args.platform == "kick":
-        if not args.chatroom_id:
-            log.warning("--chatroom-id not supplied for kick; scoring will be audio-only")
-            chat_mon = None
-        else:
-            chat_mon = chat_kick.KickChatMonitor(args.channel, args.chatroom_id)
-            chat_mon.start()
-    else:
-        raise ValueError(f"unknown platform {args.platform!r}")
+    chat_mon = chat.ChatMonitor(args.channel)
+    chat_mon.start()
 
     stop = {"flag": False}
 
@@ -85,22 +73,16 @@ def cmd_monitor(args: argparse.Namespace) -> int:
             except Exception:
                 log.exception("detection pass failed; continuing")
     finally:
-        if chat_mon is not None:
-            chat_mon.stop()
+        chat_mon.stop()
         capture.stop()
         log.info("capture stopped")
     return 0
 
 
-# Duck-typed monitor: both chat.ChatMonitor and chat_kick.KickChatMonitor expose
-# .started_at(), .velocity_curve(start, end, bin_seconds), .stop().
-ChatLike = "chat.ChatMonitor | chat_kick.KickChatMonitor | None"
-
-
 def _run_detection_pass(
     args: argparse.Namespace,
     capture: ingest.Capture,
-    chat_mon,
+    chat_mon: chat.ChatMonitor,
     out_dir: Path,
     cut_already: set[float],
 ) -> None:
@@ -120,12 +102,9 @@ def _run_detection_pass(
         wav_path.unlink(missing_ok=True)
 
     end = elapsed - args.detect_lag
-    if chat_mon is not None:
-        chat_offset = chat_mon.started_at() - capture_start
-        chat_curve = chat_mon.velocity_curve(start=0.0, end=end, bin_seconds=args.bin_seconds)
-        chat_curve = [(t + chat_offset, v) for t, v in chat_curve]
-    else:
-        chat_curve = None
+    chat_offset = chat_mon.started_at() - capture_start
+    chat_curve = chat_mon.velocity_curve(start=0.0, end=end, bin_seconds=args.bin_seconds)
+    chat_curve = [(t + chat_offset, v) for t, v in chat_curve]
 
     highlights = score.detect_highlights(
         audio_curve, chat_curve,
@@ -243,11 +222,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="out", help="output directory")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    mon = sub.add_parser("monitor", help="live: monitor a channel and clip highlights as they happen")
-    mon.add_argument("channel", help="channel handle (e.g. 'kaicenat' for twitch, 'adinross' for kick)")
-    mon.add_argument("--platform", choices=["twitch", "kick"], default="twitch")
-    mon.add_argument("--chatroom-id", type=int, default=None,
-                     help="kick only: numeric chatroom_id from kick.com API. without it, scoring is audio-only.")
+    mon = sub.add_parser("monitor", help="live: monitor a Twitch channel and clip highlights as they happen")
+    mon.add_argument("channel", help="twitch channel handle (e.g. 'kaicenat')")
     mon.add_argument("--quality", default="480p,worst", help="streamlink quality selector")
     mon.add_argument("--segment-seconds", type=int, default=30)
     mon.add_argument("--detect-interval", type=int, default=30, help="run detection every N seconds")

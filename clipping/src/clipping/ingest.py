@@ -21,26 +21,14 @@ log = logging.getLogger(__name__)
 OFFLINE_TOKENS = ("no playable streams", "is offline", "no streams found")
 
 
-PLATFORM_URLS = {
-    "twitch": "https://www.twitch.tv/{channel}",
-    "kick":   "https://kick.com/{channel}",
-}
-
-
 @dataclass
 class CaptureConfig:
     channel: str
     output_dir: Path
-    platform: str = "twitch"               # 'twitch' or 'kick'
     quality: str = "480p,worst"           # streamlink quality selector
     segment_seconds: int = 30              # ffmpeg segment length
     retention_seconds: int = 3600          # delete segments older than this
     poll_offline_seconds: int = 60         # retry interval when channel offline
-
-    def stream_url(self) -> str:
-        if self.platform not in PLATFORM_URLS:
-            raise ValueError(f"unknown platform {self.platform!r}; supported: {list(PLATFORM_URLS)}")
-        return PLATFORM_URLS[self.platform].format(channel=self.channel)
 
 
 @dataclass
@@ -113,7 +101,7 @@ def start_capture(config: CaptureConfig) -> Capture:
             f.unlink(missing_ok=True)
     segments_dir.mkdir(parents=True, exist_ok=True)
 
-    url = config.stream_url()
+    url = f"https://www.twitch.tv/{config.channel}"
     sl_cmd = ["streamlink", "--stdout", "--retry-streams", "0", "--retry-max", "0", url, config.quality]
     # MPEG-TS segments: no moov-atom problem (streaming-friendly container
     # designed for partial reads). Matches what HLS delivers anyway.
