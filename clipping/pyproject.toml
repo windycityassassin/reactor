@@ -1,0 +1,35 @@
+[project]
+name = "clipping"
+version = "0.1.0"
+description = "Live-stream highlight clipper. Watches Twitch channels, captures, detects highlights, cuts vertical short-form clips."
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27",          # Twitch Helix API
+  "streamlink>=6.7",      # HLS stream capture
+  "pyyaml>=6.0",          # config
+  "python-dotenv>=1.0",   # credentials
+]
+
+[project.optional-dependencies]
+detect = [
+  "numpy>=1.26",
+  "soundfile>=0.12",      # audio loudness scoring
+]
+caption = [
+  "openai-whisper>=20231117",  # optional auto-captions
+]
+publish = [
+  "google-api-python-client>=2.0",  # YouTube
+  "google-auth-oauthlib>=1.0",
+  # TikTok and Instagram official APIs added per-platform when wired
+]
+
+[project.scripts]
+clipping = "clipping.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
